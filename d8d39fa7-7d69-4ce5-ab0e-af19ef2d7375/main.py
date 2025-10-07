@@ -5,10 +5,10 @@ import numpy as np
 
 class TradingStrategy(Strategy):
     def __init__(self):
-        self.tickers = ["SPY", "NVDA", "TBIL"]
+        self.tickers = ["SPY", "NVDA", "BIL"]  # Changed TBIL to BIL, which has data from 2007
         self.data_list = []  # No additional data sources
         self.trade_size_pct = 0.2667
-        self.tbil_price = 50.00
+        self.tbil_price = 91.50  # Approximate price for BIL
         self.tbil_min_weight = self.tbil_price / 10000.0  # Approximate minimum for $10k portfolio
         self.consecutive_up_days = 0
         self.consecutive_down_days = 0
@@ -61,7 +61,7 @@ class TradingStrategy(Strategy):
             alloc = {t: holdings.get(t, 0.0) for t in self.tickers}
             remaining = 1.0 - sum(alloc.values())
             if remaining >= self.tbil_min_weight:
-                alloc['TBIL'] += remaining
+                alloc['BIL'] += remaining
             return TargetAllocation(alloc)
 
         p = current_data[self.current_stock]
@@ -147,11 +147,11 @@ class TradingStrategy(Strategy):
                 self.highest_price = high
                 self.stop_loss = high - 3 * atr
 
-        # Allocate remaining to TBIL if sufficient
+        # Allocate remaining to BIL if sufficient
         current_sum = sum(allocation.values())
         remaining = 1.0 - current_sum
         if remaining >= self.tbil_min_weight:
-            allocation['TBIL'] += remaining
+            allocation['BIL'] += remaining
 
         # Ensure total <= 1.0 (trim if over due to approximations)
         total = sum(allocation.values())
