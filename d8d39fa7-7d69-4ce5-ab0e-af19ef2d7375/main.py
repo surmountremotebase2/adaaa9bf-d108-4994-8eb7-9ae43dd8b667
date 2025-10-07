@@ -4,7 +4,7 @@ from surmount.technical_indicators import RSI, ATR, STDEV
 import numpy as np
 import pandas as pd
 
-# Load SPY data from provided file
+# Load SPY data
 spy_data_raw = """
 Date,Price,Open,High,Low
 02/07/2020,332.82,333.99,335.08,331.65
@@ -48,8 +48,8 @@ class TradingStrategy(Strategy):
         self.trade_size_pct = 0.2667
         self.tbil_price = 91.50
         self.tbil_min_weight = self.tbil_price / 10000.0
-        self.consecutive_up_days = 0
-        self.consecutive_down_days = 0
+        self.consecutive_up_days = {'SPY': 0, 'NVDA': 0}
+        self.consecutive_down_days = {'SPY': 0, 'NVDA': 0}
         self.stop_loss = {}
         self.highest_price = {}
         self.prev_closes = {'SPY': 0.0, 'NVDA': 0.0}
@@ -71,6 +71,7 @@ class TradingStrategy(Strategy):
     def run(self, data):
         ohlcv = data.get("ohlcv", [])
         if not ohlcv:
+            log("No OHLCV data available")
             return TargetAllocation({t: 0.0 for t in self.tickers})
 
         current_data = ohlcv[-1]
@@ -80,122 +81,126 @@ class TradingStrategy(Strategy):
             date = pd.to_datetime(date_str)
         except:
             date = pd.to_datetime('2020-02-07')
+            log(f"Invalid date format: {date_str}, using default 2020-02-07")
 
         # Compute volatility
         def get_current_ind(ticker, indicator_func, length):
             try:
                 ind_values = indicator_func(ticker, ohlcv, length)
                 return ind_values[-1] if ind_values and len(ind_values) > 0 else np.nan
-            except:
+            except Exception as e:
+                log(f"Error computing {indicator_func.__name__} for {ticker}: {e}")
                 return np.nan
 
         spy_vol20 = get_current_ind('SPY', STDEV, 20)
         if np.isnan(spy_vol20) and date in spy_data.index:
-            spy_vol20 = spy_data.loc[:date]['Price'].rolling(window=20).std().iloc[-1] if len(spy_data.loc[:date]) >= 20 else 1.5
+            spy_prices = spy_data.loc[:date]['Price']
+            spy_vol20 = spy_prices.rolling(window=20).std().iloc[-1] if len(spy_prices) >= 20 else 1.5
         nvda_vol20 = get_current_ind('NVDA', STDEV, 20)
         if np.isnan(nvda_vol20):
-            nvda_vol20 = get_current_ind('NVDA', ATR, 14) * np.sqrt(20) if not np.isnan(get_current_ind('NVDA', ATR, 14)) else 5.5
+            nvda_atr = get_current_ind('NVDA', ATR, 14)
+            nvda_vol20 = nvda_atr * np.sqrt(20) if not np.isnan(nvda_atr) else 3.0  # Adjusted fallback
 
         if np.isnan(spy_vol20):
             spy_vol20 = 1.5
 
-        # Select stock with balanced volatility
+        # Select stock
         volatilities = [('SPY', spy_vol20), ('NVDA', nvda_vol20)]
-        self.current_stock = max(volatilities, key=lambda x: x[1])[0]
+        self.current_stock = 'SPY' if spy_vol20 > nvda_vol20 else 'NVDA'
+        log(f"Volatilities: SPY={spy_vol20:.2f}, NVDA={nvda_vol20:.2f}, Selected: {self.current_stock}")
 
-        # Get current bar data
-        if self.current_stock not in current_data:
-            self.current_stock = 'SPY' if 'SPY' in current_data else None
-            if not self.current_stock or date not in spy_data.index:
-                alloc = {t: holdings.get(t, 0.0) for t in self.tickers}
-                alloc['BIL'] += 1.0 - sum(alloc.values())
-                log(f"Date: {date_str}, Allocation: {alloc}, Current Stock: {self.current_stock or 'None'}, RSI: nan, ATR: nan")
-                return TargetAllocation(alloc)
-
-        p = current_data[self.current_stock]
-        price = p['open']
-        high = p['high']
-        low = p['low']
-        close = p['close']
-
-        if self.current_stock == 'SPY' and date in spy_data.index:
-            price = spy_data.loc[date, 'Open']
-            high = spy_data.loc[date, 'High']
-            low = spy_data.loc[date, 'Low']
-            close = spy_data.loc[date, 'Price']
-
-        # Indicators
-        rsi = get_current_ind(self.current_stock, RSI, 14)
-        atr = get_current_ind(self.current_stock, ATR, 14)
-        if np.isnan(rsi):
-            rsi = 50.0 if self.current_stock == 'SPY' else 39.0
-        if np.isnan(atr):
-            atr = 5.00 if self.current_stock == 'SPY' else 1.50
-        vol20_current = spy_vol20 if self.current_stock == 'SPY' else nvda_vol20
-
-        # Daily return
-        prev_close = self.prev_closes[self.current_stock]
-        daily_return = (close - prev_close) / prev_close if prev_close != 0 else 0
-        self.prev_closes[self.current_stock] = close
-
-        # Update consecutive days
-        if daily_return > 0:
-            self.consecutive_up_days += 1
-            self.consecutive_down_days = 0
-        elif daily_return < 0:
-            self.consecutive_down_days += 1
-            self.consecutive_up_days = 0
-        else:
-            self.consecutive_up_days = 0
-            self.consecutive_down_days = 0
-
-        current_holding = holdings.get(self.current_stock, 0.0)
-        bil_holding = holdings.get('BIL', 0.0)
-
-        # Effective pct
-        effective_pct = self.trade_size_pct
-        if vol20_current > 4:
-            effective_pct *= 0.75
-
-        # Initialize allocation
+        # Get data for both stocks to update metrics
         allocation = {t: holdings.get(t, 0.0) for t in self.tickers}
+        for stock in ['SPY', 'NVDA']:
+            if stock not in current_data and (stock != 'SPY' or date not in spy_data.index):
+                continue
 
-        # Initial allocation
-        if not self.initialized:
-            self.initialized = True
-            allocation = {t: 0.0 for t in self.tickers}
-            allocation[self.current_stock] = 0.5
-            allocation['SPY' if self.current_stock != 'SPY' else 'NVDA'] = 0.5
-            self.highest_price[self.current_stock] = high
-            self.stop_loss[self.current_stock] = high - 5 * atr
-            log(f"Date: {date_str}, Allocation: {allocation}, Current Stock: {self.current_stock}, RSI: {rsi:.2f}, ATR: {atr:.2f}")
-            return TargetAllocation(allocation)
+            price = high = low = close = np.nan
+            if stock == 'SPY' and date in spy_data.index:
+                price = spy_data.loc[date, 'Open']
+                high = spy_data.loc[date, 'High']
+                low = spy_data.loc[date, 'Low']
+                close = spy_data.loc[date, 'Price']
+            elif stock in current_data:
+                p = current_data[stock]
+                price = p['open']
+                high = p['high']
+                low = p['low']
+                close = p['close']
 
-        # Update stop-loss
-        if current_holding > 0:
-            self.highest_price[self.current_stock] = max(self.highest_price.get(self.current_stock, price), high)
-            self.stop_loss[self.current_stock] = self.highest_price[self.current_stock] - 5 * atr
+            if np.isnan(price):
+                continue
 
-        # Stop-loss
-        if current_holding > 0 and low <= self.stop_loss.get(self.current_stock, float('inf')):
-            allocation[self.current_stock] = 0.0
-            self.stop_loss.pop(self.current_stock, None)
-            self.highest_price.pop(self.current_stock, None)
-            self.consecutive_up_days = 0
-            self.consecutive_down_days = 0
+            rsi = get_current_ind(stock, RSI, 14)
+            atr = get_current_ind(stock, ATR, 14)
+            if np.isnan(rsi):
+                rsi = 50.0 if stock == 'SPY' else 39.0
+            if np.isnan(atr):
+                atr = 5.00 if stock == 'SPY' else 1.50
 
-        # Sell on consecutive up days
-        if self.consecutive_up_days >= 3 and current_holding > 0:
-            sell_pct = effective_pct * 0.5
-            allocation[self.current_stock] = max(0.0, allocation[self.current_stock] - sell_pct)
+            # Daily return
+            prev_close = self.prev_closes[stock]
+            daily_return = (close - prev_close) / prev_close if prev_close != 0 else 0
+            self.prev_closes[stock] = close
 
-        # Buy condition
-        available_for_buy = bil_holding + allocation[self.current_stock]
-        if rsi < 50 and available_for_buy >= effective_pct:
-            allocation[self.current_stock] += effective_pct
-            allocation['BIL'] = max(0.0, bil_holding - effective_pct)
-            self.highest_price[self.current_stock] = high
-            self.stop_loss[self.current_stock] = high - 5 * atr
+            # Update consecutive days
+            if daily_return > 0:
+                self.consecutive_up_days[stock] += 1
+                self.consecutive_down_days[stock] = 0
+            elif daily_return < 0:
+                self.consecutive_down_days[stock] += 1
+                self.consecutive_up_days[stock] = 0
+            else:
+                self.consecutive_up_days[stock] = 0
+                self.consecutive_down_days[stock] = 0
+
+            current_holding = holdings.get(stock, 0.0)
+            effective_pct = self.trade_size_pct
+            vol20 = spy_vol20 if stock == 'SPY' else nvda_vol20
+            if vol20 > 4:
+                effective_pct *= 0.75
+
+            # Initial allocation
+            if not self.initialized and stock == self.current_stock:
+                self.initialized = True
+                allocation = {t: 0.0 for t in self.tickers}
+                allocation['SPY'] = 0.5
+                allocation['NVDA'] = 0.5
+                self.highest_price['SPY'] = high if stock == 'SPY' else spy_data.loc[date, 'High'] if date in spy_data.index else high
+                self.highest_price['NVDA'] = high if stock == 'NVDA' else high
+                self.stop_loss['SPY'] = self.highest_price['SPY'] - 5 * (5.00 if stock == 'SPY' else atr)
+                self.stop_loss['NVDA'] = self.highest_price['NVDA'] - 5 * (1.50 if stock == 'NVDA' else atr)
+                log(f"Date: {date_str}, Allocation: {allocation}, Current Stock: {self.current_stock}, RSI: {rsi:.2f}, ATR: {atr:.2f}")
+                return TargetAllocation(allocation)
+
+            # Update stop-loss
+            if current_holding > 0:
+                self.highest_price[stock] = max(self.highest_price.get(stock, price), high)
+                self.stop_loss[stock] = self.highest_price[stock] - 5 * atr
+
+            # Stop-loss
+            if current_holding > 0 and low <= self.stop_loss.get(stock, float('inf')):
+                allocation[stock] = 0.0
+                self.stop_loss.pop(stock, None)
+                self.highest_price.pop(stock, None)
+                self.consecutive_up_days[stock] = 0
+                self.consecutive_down_days[stock] = 0
+                log(f"Stop-loss triggered for {stock}")
+
+            # Sell on consecutive up days
+            if self.consecutive_up_days[stock] >= 3 and current_holding > 0:
+                sell_pct = effective_pct * 0.5
+                allocation[stock] = max(0.0, allocation[stock] - sell_pct)
+                log(f"Selling {sell_pct:.4f} of {stock} due to 3+ up days")
+
+            # Buy condition
+            available_for_buy = holdings.get('BIL', 0.0) + allocation[stock]
+            if rsi < 55 and available_for_buy >= effective_pct:
+                allocation[stock] += effective_pct
+                allocation['BIL'] = max(0.0, holdings.get('BIL', 0.0) - effective_pct)
+                self.highest_price[stock] = high
+                self.stop_loss[stock] = high - 5 * atr
+                log(f"Buying {effective_pct:.4f} of {stock}, RSI: {rsi:.2f}")
 
         # Allocate remaining to BIL
         current_sum = sum(allocation.values())
