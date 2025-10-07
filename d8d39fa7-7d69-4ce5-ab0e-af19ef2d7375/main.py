@@ -1,4 +1,5 @@
-#Type import pandas as pd
+#Type 
+import pandas as pd
 import numpy as np
 
 # Data Setup
