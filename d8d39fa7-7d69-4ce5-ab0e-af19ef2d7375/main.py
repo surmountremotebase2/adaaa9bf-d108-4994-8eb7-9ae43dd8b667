@@ -174,4 +174,4 @@ print("\nWVV1.5 Performance Summary")
 print(f"Final Value: ${wvv15.portfolio_value:.2f}")
 print(f"Return: {(wvv15.portfolio_value / 10000 - 1) * 100:.2f}%")
 print(f"Costs: ${wvv15.costs:.2f}")
-print(f"Holdings: {wvv15.holdings}")code here
+print(f"Holdings: {wvv15.holdings}")
