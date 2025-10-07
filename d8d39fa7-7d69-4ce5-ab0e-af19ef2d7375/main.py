@@ -1,26 +1,28 @@
 import pandas as pd
 import numpy as np
 
-# Data Setup for 2009–2012 (Aug 21–30, 2012)
-dates = pd.date_range('2012-08-21', '2012-08-30', freq='B')
+# Data Setup (2009-12-29 to 2012-08-30)
+dates = pd.date_range('2009-12-29', '2012-08-30', freq='B')
+# Approximate SPY prices (based on historical data, adjusted)
+spy_prices = np.linspace(110, 141, len(dates))  # Linear approximation from $110 to $141
 spy_data = pd.DataFrame({
-    'Open': [141.00] * len(dates),  # Approx. SPY price ~$141 in 2012
-    'High': [141.50] * len(dates),
-    'Low': [140.50] * len(dates),
-    'Close': [141.10, 141.00, 141.20, 141.30, 141.40, 141.50, 141.60, 141.70, 141.80],
-    'RSI': [63.17, 63.62, 55.49, 60.30, 54.89, 53.64, 54.20, 48.53],
-    'ATR': [0.01] * len(dates),
+    'Open': spy_prices,
+    'High': spy_prices + 0.5,
+    'Low': spy_prices - 0.5,
+    'Close': spy_prices,
+    'RSI': [60.89, 77.37, 77.42] + [50] * (len(dates) - 3),  # From log, then assume 50
+    'ATR': [1.132, 0.01, 0.01] + [0.01] * (len(dates) - 3),   # From log, then assume 0.01
     'Vol20': [1.5] * len(dates)
 }, index=dates)
 
 nvda_data = pd.DataFrame({
-    'Open': [0.015] * len(dates),  # Approx. NVDA price ~$0.015 (post-split adjusted)
+    'Open': [0.015] * len(dates),  # Approx NVDA price, post-split adjusted
     'High': [0.016] * len(dates),
     'Low': [0.014] * len(dates),
-    'Close': [0.015, 0.0151, 0.0152, 0.0153, 0.0154, 0.0155, 0.0156, 0.0157],
-    'RSI': [63.62, 55.49, 60.30, 54.89, 53.64, 54.20, 48.53, 52.52],
-    'ATR': [0.005] * len(dates),
-    'Vol20': [0.05, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04]
+    'Close': [0.015 + i * 0.00005 for i in range(len(dates))],
+    'RSI': [60.89, 77.37, 52.68, 74.21, 75.75, 76.42, 69.97, 70.26, 65.78, 56.52, 58.93, 55.09, 48.75, 52.38, 51.46, 47.78, 41.58, 45.21, 40.13, 45.60, 40.53, 35.25, 47.63, 49.14, 50.41, 42.44, 45.47] + [50] * (len(dates) - 27),
+    'ATR': [0.01] * len(dates),
+    'Vol20': [0.06, 0.07, 0.06, 0.06, 0.06, 0.06, 0.06, 0.06, 0.06, 0.06, 0.07, 0.07, 0.07, 0.07, 0.07, 0.07, 0.07, 0.07, 0.07, 0.07, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08] + [0.05] * (len(dates) - 27)
 }, index=dates)
 
 class WVV15:
@@ -51,6 +53,8 @@ class WVV15:
                 value += shares * prices.get(stock, 0)
         self.portfolio_value = value
         self.trade_size = self.portfolio_value * self.trade_size_pct
+        if prices.get(self.current_stock + '_Vol20', 0) > 4:
+            self.trade_size *= 0.75
 
     def select_stock(self, date, spy_data, nvda_data):
         stocks = [('SPY', spy_data), ('NVDA', nvda_data)]
@@ -136,24 +140,10 @@ class WVV15:
             self.holdings['SPY'] = self.cash / prices['SPY']
             self.cost_basis['SPY'] = prices['SPY']
             self.cash = 0
-            self.select_stock(date, spy_data, nvda_data)
-            if self.current_stock != 'SPY':
-                shares_to_sell = self.holdings['SPY']
-                proceeds = shares_to_sell * spy_data.loc[date, 'Close']
-                cost = proceeds * 0.008
-                self.cash = proceeds - cost
-                self.costs += cost
-                self.holdings['SPY'] = 0
-                self.alerts.append(f"Switch stock from SPY to {self.current_stock}. Sell {shares_to_sell:.4f} shares of SPY at ${spy_data.loc[date, 'Close']:.2f}.")
-                shares_to_buy = self.cash / prices[self.current_stock]
-                cost = self.cash * 0.008
-                self.holdings[self.current_stock] = shares_to_buy
-                self.cost_basis[self.current_stock] = prices[self.current_stock]
-                self.cash -= self.cash
-                self.costs += cost
-                self.alerts.append(f"Buy {shares_to_buy:.4f} shares of {self.current_stock} at ${prices[self.current_stock]:.2f}.")
+            self.alerts.append(f"Initial buy: {self.holdings['SPY']:.4f} shares of SPY at ${prices['SPY']:.2f}.")
         self.update_portfolio_value(prices)
-        self.alerts.append(f"Daily Trading Alert: {date.strftime('%Y-%m-%d')}. Portfolio Value: ${self.portfolio_value:.2f}. Trade size realigned to ${self.trade_size:.2f}.")
+        self.select_stock(date, spy_data, nvda_data)
+        self.alerts.append(f"Daily Trading Alert: {date.strftime('%Y-%m-%d')}. Portfolio Value: ${self.portfolio_value:.2f}. Trade size realigned to ${self.trade_size:.2f}. Selected: {self.current_stock}")
         data = {'SPY': spy_data, 'NVDA': nvda_data}
         self.execute_trade(date, prices, data[self.current_stock])
         self.update_portfolio_value(prices)
@@ -161,15 +151,11 @@ class WVV15:
 
 # Run Simulation
 wvv15 = WVV15()
-print("=== WVV1.5 Simulation (2012, SPY/NVDA Only) ===")
-for date in dates:
+print("=== WVV1.5 Single-Asset Simulation (2009-12-29 to 2012-08-30) ===")
+for date in dates[:10]:  # Limited to first 10 days for brevity
     alerts = wvv15.simulate_day(date, spy_data, nvda_data)
     for alert in alerts:
         print(alert)
 
 # Performance Summary
-print("\nWVV1.5 Performance Summary (2012)")
-print(f"Final Value: ${wvv15.portfolio_value:.2f}")
-print(f"Return: {(wvv15.portfolio_value / 10000 - 1) * 100:.2f}%")
-print(f"Costs: ${wvv15.costs:.2f}")
-print(f"Holdings: {wvv15.holdings}")
+print("\nWVV1.5
