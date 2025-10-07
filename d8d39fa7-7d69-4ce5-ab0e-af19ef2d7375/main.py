@@ -158,4 +158,4 @@ for date in dates[:10]:  # Limited to first 10 days for brevity
         print(alert)
 
 # Performance Summary
-print("\nWVV1.5)
+print("\nWVV1.5")
