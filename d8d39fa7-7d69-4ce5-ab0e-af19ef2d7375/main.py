@@ -1,6 +1,5 @@
 import pandas as pd
 import numpy as np
-import yfinance as yf
 from ta.trend import MACD, ADX, SMAIndicator
 from ta.momentum import RSIIndicator
 from ta.volatility import AverageTrueRange
@@ -33,36 +32,55 @@ qqq_tickers = ['AAPL', 'MSFT', 'NVDA', 'AMZN', 'META', 'AVGO', 'TSLA', 'GOOGL', 
 original_tickers = ['MSTR', 'SPY', 'RGTI', 'PSIX']
 tickers = original_tickers + qqq_tickers
 
-# Download data
-logging.info("Fetching data for tickers")
+# Synthetic data parameters
+start_prices = {
+    'MSTR': 35.00, 'SPY': 426.66, 'RGTI': 1.00, 'PSIX': 5.00, 'TSLA': 900.00, 'NVDA': 80.00,
+    'AAPL': 120.00, 'MSFT': 300.00, 'AMZN': 140.00, 'META': 400.00, 'AVGO': 120.00, 'GOOGL': 130.00,
+    'GOOG': 130.00, 'COST': 600.00, 'NFLX': 500.00, 'AMD': 100.00, 'PEP': 140.00, 'ADBE': 400.00,
+    'LIN': 300.00, 'QCOM': 140.00, 'TMUS': 150.00, 'AMGN': 260.00, 'CSCO': 40.00, 'TXN': 150.00
+}
+returns_mean = {
+    'MSTR': 0.0015, 'SPY': 0.0006, 'RGTI': 0.001, 'PSIX': 0.0005, 'TSLA': 0.0025, 'NVDA': 0.002,
+    'AAPL': 0.001, 'MSFT': 0.001, 'AMZN': 0.0015, 'META': 0.0015, 'AVGO': 0.001, 'GOOGL': 0.001,
+    'GOOG': 0.001, 'COST': 0.0005, 'NFLX': 0.0015, 'AMD': 0.002, 'PEP': 0.0005, 'ADBE': 0.001,
+    'LIN': 0.0005, 'QCOM': 0.001, 'TMUS': 0.0005, 'AMGN': 0.0005, 'CSCO': 0.0005, 'TXN': 0.0005
+}
+returns_std = {
+    'MSTR': 0.025, 'SPY': 0.008, 'RGTI': 0.035, 'PSIX': 0.02, 'TSLA': 0.03, 'NVDA': 0.028,
+    'AAPL': 0.015, 'MSFT': 0.015, 'AMZN': 0.02, 'META': 0.02, 'AVGO': 0.018, 'GOOGL': 0.015,
+    'GOOG': 0.015, 'COST': 0.01, 'NFLX': 0.02, 'AMD': 0.025, 'PEP': 0.01, 'ADBE': 0.015,
+    'LIN': 0.01, 'QCOM': 0.015, 'TMUS': 0.01, 'AMGN': 0.01, 'CSCO': 0.01, 'TXN': 0.01
+}
+
+# Generate synthetic data
+logging.info("Generating synthetic data for tickers")
+np.random.seed(42)  # For reproducibility
+dates = pd.date_range(start='2023-10-01', end='2025-10-06', freq='B')[:508]
 data = {}
 for ticker in tickers:
-    try:
-        df = yf.download(ticker, start='2023-10-01', end='2025-10-07', progress=False)
-        if df.empty:
-            raise ValueError(f"No data for {ticker}")
-        df['macd'], df['macd_signal'], _ = MACD(df['Close'], window_slow=26, window_fast=12, window_sign=9).macd()
-        df['sma_50'] = SMAIndicator(df['Close'], window=50).sma_indicator()
-        df['rsi'] = RSIIndicator(df['Close'], window=14).rsi()
-        df['adx'] = ADX(df['High'], df['Low'], df['Close'], window=14).adx()
-        df['atr'] = AverageTrueRange(df['High'], df['Low'], df['Close'], window=14).average_true_range()
-        df['volatility'] = df['Close'].pct_change().rolling(window=20).std() * np.sqrt(252) * 100
-        data[ticker] = df
-    except Exception as e:
-        logging.error(f"Error fetching data for {ticker}: {e}")
-        data[ticker] = pd.DataFrame()
+    prices = [start_prices[ticker]]
+    for _ in range(1, 508):
+        ret = np.random.normal(returns_mean[ticker], returns_std[ticker])
+        prices.append(prices[-1] * (1 + ret))
+    df = pd.DataFrame({
+        'Open': [p * (1 + np.random.uniform(-0.01, 0.01)) for p in prices],
+        'Close': prices,
+        'High': [p * (1 + np.random.uniform(0.03, 0.05)) for p in prices],
+        'Low': [p * (1 - np.random.uniform(0.03, 0.05)) for p in prices]
+    }, index=dates)
+    df['macd'], df['macd_signal'], _ = MACD(df['Close'], window_slow=26, window_fast=12, window_sign=9).macd()
+    df['sma_50'] = SMAIndicator(df['Close'], window=50).sma_indicator()
+    df['rsi'] = RSIIndicator(df['Close'], window=14).rsi()
+    df['adx'] = ADX(df['High'], df['Low'], df['Close'], window=14).adx()
+    df['atr'] = AverageTrueRange(df['High'], df['Low'], df['Close'], window=14).average_true_range()
+    df['volatility'] = df['Close'].pct_change().rolling(window=20).std() * np.sqrt(252) * 100
+    data[ticker] = df
 
 # Align indices to common dates
 logging.info("Aligning data indices")
-common_dates = data['MSTR'].index.intersection(data['SPY'].index)
-for ticker in qqq_tickers + ['RGTI', 'PSIX']:
-    if ticker in data and not data[ticker].empty:
-        common_dates = common_dates.intersection(data[ticker].index)
+common_dates = data['MSTR'].index
 for ticker in tickers:
-    if ticker in data and not data[ticker].empty:
-        data[ticker] = data[ticker].loc[common_dates].ffill()
-    else:
-        data[ticker] = pd.DataFrame(index=common_dates)
+    data[ticker] = data[ticker].loc[common_dates].ffill()
 
 # Initialize portfolio
 portfolio = {'cash': 10000, 'shares': 0, 'value': 10000, 'tbill': 0}
@@ -199,24 +217,4 @@ for i in range(2, len(dates)):
         continue
 
 # Final portfolio value
-final_close = df_current['Close'][-1]
-final_value = portfolio['shares'] * final_close + portfolio['cash'] + portfolio['tbill']
-print(f"WVV1.3 Final Portfolio Value: ${final_value:.2f}")
-print(f"WVV1.3 Return: {(final_value - 10000) / 10000 * 100:.2f}%")
-print(f"WVV1.3 Current Ticker: {current_ticker}")
-print(f"WVV1.3 Number of Switches: {sum(1 for t in trades if 'SWITCH' in str(t[1]))}")
-print(f"WVV1.3 Number of Trades: {len(trades)}")
-logging.info(f"WVV1.3 Final Portfolio Value: ${final_value:.2f}")
-logging.info(f"WVV1.3 Return: {(final_value - 10000) / 10000 * 100:.2f}%")
-logging.info(f"WVV1.3 Current Ticker: {current_ticker}")
-logging.info(f"WVV1.3 Number of Switches: {sum(1 for t in trades if 'SWITCH' in str(t[1]))}")
-logging.info(f"WVV1.3 Number of Trades: {len(trades)}")
-
-# Save trades to CSV
-with open('trades_log.csv', 'w', newline='') as f:
-    writer = csv.writer(f)
-    writer.writerow(['Date', 'Action', 'Shares', 'Price', 'PortfolioValue'])
-    for trade in trades:
-        writer.writerow([trade[0], trade[1], f"{trade[2]:.2f}", f"{trade[3]:.2f}", f"{trade[4]:.2f}"])
-
-logging.info("Backtest completed successfully")
+final_close = df_current['Close
