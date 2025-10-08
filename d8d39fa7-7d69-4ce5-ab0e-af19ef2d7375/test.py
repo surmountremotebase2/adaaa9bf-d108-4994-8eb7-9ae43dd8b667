@@ -1,9 +1,6 @@
-# Typimport pandas as pd
+import pandas as pd
 import numpy as np
-try:
-    import yfinance as yf
-except ImportError:
-    raise ImportError("yfinance module not found. Please install with: pip install yfinance")
+from alpha_vantage.timeseries import TimeSeries
 from ta.trend import MACD, ADX, SMAIndicator
 from ta.momentum import RSIIndicator
 from ta.volatility import AverageTrueRange
@@ -13,6 +10,7 @@ import warnings
 import logging
 import csv
 import os
+import time
 
 # Suppress warnings
 warnings.filterwarnings('ignore')
@@ -23,6 +21,9 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
+
+# Alpha Vantage API key (replace with your own from alphavantage.co)
+ALPHA_VANTAGE_API_KEY = "YOUR_API_KEY"
 
 # Twilio configuration (uncomment for live)
 # TWILIO_SID = "your_twilio_sid"
@@ -36,14 +37,27 @@ qqq_tickers = ['AAPL', 'MSFT', 'NVDA', 'AMZN', 'META', 'AVGO', 'TSLA', 'GOOGL', 
 original_tickers = ['MSTR', 'SPY', 'RGTI', 'PSIX']
 tickers = original_tickers + qqq_tickers
 
-# Download data
-logging.info("Fetching data for tickers")
+# Download data from Alpha Vantage
+logging.info("Fetching data for tickers from Alpha Vantage")
+ts = TimeSeries(key=ALPHA_VANTAGE_API_KEY, output_format='pandas')
 data = {}
 for ticker in tickers:
     try:
-        df = yf.download(ticker, start='2023-10-01', end='2025-10-07', progress=False)
+        df, _ = ts.get_daily_adjusted(symbol=ticker, outputsize='full')
+        df = df.loc['2023-10-01':'2025-10-06']  # Filter to backtest period
         if df.empty:
             raise ValueError(f"No data for {ticker}")
+        # Rename columns to match yfinance format
+        df = df.rename(columns={
+            '1. open': 'Open',
+            '2. high': 'High',
+            '3. low': 'Low',
+            '4. close': 'Close',
+            '5. adjusted close': 'Adj Close',
+            '6. volume': 'Volume'
+        })
+        df.index = pd.to_datetime(df.index)
+        df = df.sort_index()
         df['macd'], df['macd_signal'], _ = MACD(df['Close'], window_slow=26, window_fast=12, window_sign=9).macd()
         df['sma_50'] = SMAIndicator(df['Close'], window=50).sma_indicator()
         df['rsi'] = RSIIndicator(df['Close'], window=14).rsi()
@@ -51,6 +65,7 @@ for ticker in tickers:
         df['atr'] = AverageTrueRange(df['High'], df['Low'], df['Close'], window=14).average_true_range()
         df['volatility'] = df['Close'].pct_change().rolling(window=20).std() * np.sqrt(252) * 100
         data[ticker] = df
+        time.sleep(12)  # Respect Alpha Vantage rate limit (5 calls/min)
     except Exception as e:
         logging.error(f"Error fetching data for {ticker}: {e}")
         data[ticker] = pd.DataFrame()
@@ -222,4 +237,4 @@ with open('trades_log.csv', 'w', newline='') as f:
     for trade in trades:
         writer.writerow([trade[0], trade[1], f"{trade[2]:.2f}", f"{trade[3]:.2f}", f"{trade[4]:.2f}"])
 
-logging.info("Backtest completed successfully")e code here
+logging.info("Backtest completed successfully")
