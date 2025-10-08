@@ -65,16 +65,16 @@ for ticker in tickers:
         data[ticker] = pd.DataFrame(index=common_dates)
 
 # Initialize portfolio
-portfolio = {'cash': 3000, 'shares': 0, 'value': 3000, 'tbill': 0}
+portfolio = {'cash': 10000, 'shares': 0, 'value': 10000, 'tbill': 0}
 current_ticker = 'MSTR'
-trade_size = 800  # Initial 26.67% of $3,000
+trade_size = 2667  # Initial 26.67% of $10,000
 trades = []
 highest_price = 0
 stop_loss = 0
 days_since_realign = 0
-switch_cost = 0.005
+switch_cost = 0.005  # Not applied (zero fees/slippage per log)
 
-logging.info("Starting backtest for WVV1.3: Oct 1, 2023 - Oct 6, 2025, initial investment $3,000")
+logging.info("Starting backtest for WVV1.3: Oct 1, 2023 - Oct 6, 2025, initial investment $10,000")
 
 # Trading loop
 dates = common_dates
@@ -99,7 +99,7 @@ for i in range(2, len(dates)):
         if day_before_prev_close > prev_close and prev_rsi < 40 and prev_adx < 30 and portfolio['cash'] >= trade_size:
             scale_factor = 0.35 if prev_volatility < 10 else 0.2667
             size = trade_size * 0.75 if prev_volatility > 4 else trade_size
-            shares = size / open_price * (1 - 0.005 - 0.003)
+            shares = size / open_price  # Zero fees/slippage
             portfolio['shares'] += shares
             portfolio['cash'] -= size
             portfolio['tbill'] += size
@@ -128,7 +128,7 @@ for i in range(2, len(dates)):
                 max_vol = vols[max_ticker]
                 if max_vol > 4 and max_ticker != current_ticker:
                     if portfolio['shares'] > 0:
-                        proceeds = portfolio['shares'] * close * (1 - switch_cost)
+                        proceeds = portfolio['shares'] * close  # Zero fees/slippage
                         portfolio['cash'] += proceeds
                         portfolio['tbill'] += proceeds
                         trades.append((date, f'SWITCH_SELL_{current_ticker}', portfolio['shares'], close, portfolio['value']))
@@ -139,7 +139,7 @@ for i in range(2, len(dates)):
                         # client.messages.create(body=message, from_=TWILIO_FROM, to=TWILIO_TO)
                     new_df = data[max_ticker]
                     new_close = new_df['Close'][i]
-                    new_shares = (portfolio['cash'] * scale_factor * (1 / scale_factor)) / new_close * (1 - switch_cost)
+                    new_shares = (portfolio['cash'] * scale_factor * (1 / scale_factor)) / new_close  # Zero fees/slippage
                     portfolio['shares'] = new_shares
                     portfolio['cash'] -= portfolio['cash'] * scale_factor * (1 / scale_factor)
                     portfolio['tbill'] += portfolio['cash'] * scale_factor * (1 / scale_factor)
@@ -166,7 +166,7 @@ for i in range(2, len(dates)):
 
         if portfolio['shares'] > 0 and close <= stop_loss:
             sell_shares = portfolio['shares']
-            proceeds = sell_shares * close * (1 - 0.005 - 0.003)
+            proceeds = sell_shares * close  # Zero fees/slippage
             portfolio['cash'] += proceeds
             portfolio['tbill'] += proceeds
             portfolio['shares'] = 0
@@ -183,7 +183,7 @@ for i in range(2, len(dates)):
             scale_factor = 0.35 if volatility < 10 else 0.2667
             size = trade_size * 0.75 if volatility > 4 else trade_size
             shares = min(size / close, portfolio['shares'])
-            proceeds = shares * close * (1 - 0.005 - 0.003)
+            proceeds = shares * close  # Zero fees/slippage
             portfolio['shares'] -= shares
             portfolio['cash'] += proceeds
             portfolio['tbill'] += proceeds
@@ -202,12 +202,12 @@ for i in range(2, len(dates)):
 final_close = df_current['Close'][-1]
 final_value = portfolio['shares'] * final_close + portfolio['cash'] + portfolio['tbill']
 print(f"WVV1.3 Final Portfolio Value: ${final_value:.2f}")
-print(f"WVV1.3 Return: {(final_value - 3000) / 3000 * 100:.2f}%")
+print(f"WVV1.3 Return: {(final_value - 10000) / 10000 * 100:.2f}%")
 print(f"WVV1.3 Current Ticker: {current_ticker}")
 print(f"WVV1.3 Number of Switches: {sum(1 for t in trades if 'SWITCH' in str(t[1]))}")
 print(f"WVV1.3 Number of Trades: {len(trades)}")
 logging.info(f"WVV1.3 Final Portfolio Value: ${final_value:.2f}")
-logging.info(f"WVV1.3 Return: {(final_value - 3000) / 3000 * 100:.2f}%")
+logging.info(f"WVV1.3 Return: {(final_value - 10000) / 10000 * 100:.2f}%")
 logging.info(f"WVV1.3 Current Ticker: {current_ticker}")
 logging.info(f"WVV1.3 Number of Switches: {sum(1 for t in trades if 'SWITCH' in str(t[1]))}")
 logging.info(f"WVV1.3 Number of Trades: {len(trades)}")
