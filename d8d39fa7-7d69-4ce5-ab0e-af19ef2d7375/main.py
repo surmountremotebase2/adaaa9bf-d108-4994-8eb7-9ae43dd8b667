@@ -38,7 +38,7 @@ logging.info("Fetching data for tickers")
 data = {}
 for ticker in tickers:
     try:
-        df = yf.download(ticker, start='2024-10-01', end='2025-10-08', progress=False)
+        df = yf.download(ticker, start='2023-10-01', end='2025-10-07', progress=False)
         if df.empty:
             raise ValueError(f"No data for {ticker}")
         df['macd'], df['macd_signal'], _ = MACD(df['Close'], window_slow=26, window_fast=12, window_sign=9).macd()
@@ -74,7 +74,7 @@ stop_loss = 0
 days_since_realign = 0
 switch_cost = 0.005
 
-logging.info("Starting backtest for WVV1.3: Oct 1, 2024 - Oct 7, 2025, initial investment $3,000")
+logging.info("Starting backtest for WVV1.3: Oct 1, 2023 - Oct 6, 2025, initial investment $3,000")
 
 # Trading loop
 dates = common_dates
@@ -220,31 +220,3 @@ with open('trades_log.csv', 'w', newline='') as f:
         writer.writerow([trade[0], trade[1], f"{trade[2]:.2f}", f"{trade[3]:.2f}", f"{trade[4]:.2f}"])
 
 logging.info("Backtest completed successfully")
-
-1.  Python Environment:
-	•  Use Python 3.8+.
-	•  Install dependencies: pip install pandas numpy yfinance ta twilio.
-	•  For ta-lib: conda install -c conda-forge ta-lib or compile from source.
-	•  Save as wvv1_3_backtest_3000.py.
-2.  Running the Script:
-	•  Execute: python wvv1_3_backtest_3000.py.
-	•  Output: Console prints results, wvv1_3_backtest.log logs execution, trades_log.csv stores trades.
-3.  Live Use:
-	•  Uncomment Twilio lines and update credentials.
-	•  Integrate with a scheduling loop (e.g., schedule module from October 2, 2025, 11:43 PM) for real-time signals (9:20 AM/3:50 PM).
-	•  Run on a server (e.g., AWS EC2 t2.micro, ~$20/month) with nohup python wvv1_3_backtest_3000.py &.
-4.  IBKR Integration:
-	•  9:20 AM: Use SMS (e.g., “Set limit order to buy 16.67 MSTR at ~$180.00 at open”) with IBKR pre-market data (4:00 AM ET) for limit orders.
-	•  3:50 PM: Use SMS (e.g., “Sell 4.44 MSTR at ~$182.50”) for market/limit orders before close.
-	•  Check trades_log.csv for trade details.
-Notes
-•  Data: yfinance daily data; 3:50 PM signals use close proxy (intraday unavailable historically). Live runs use hourly data for 3:50 PM and IBKR pre-market for 9:20 AM limit orders.
-•  Performance: 162.50% return matches the $10,000 backtest, confirming linear scaling. Outperforms MSTR (~71.7%) by ~90.80% and SPY (~15.5%) by ~147%.
-•  Live Deployment: First signal October 8, 2025, 9:20 AM.
-Next Steps
-•  Chart: Want a line chart of portfolio value vs. MSTR/SPY for Oct 2024-Oct 2025? Confirm metrics.
-•  Tweaks: Test low-target limit buys (e.g., prev close - 0.5x ATR), 2x ATR, or RSI <35.
-•  Tax Optimization: Add 30-day wash sale delay (~$135 drag).
-•  Further Tests: Test another period (e.g., 2011 Euro crisis).
-•  Monitoring: Deploy and monitor SMS/logs for a week.
-Please specify your next focus, and I’ll refine further!
